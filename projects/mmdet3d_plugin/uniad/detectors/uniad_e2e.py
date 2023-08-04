@@ -333,7 +333,19 @@ class UniAD(UniADTrack):
         result_track[0] = pop_elem_in_result(result_track[0], pop_track_list)
 
         if self.with_seg_head:
-            result_seg[0] = pop_elem_in_result(result_seg[0], pop_list=['pts_bbox', 'args_tuple'])
+            # no map
+            # result_seg[0] = pop_elem_in_result(result_seg[0], pop_list=['pts_bbox', 'args_tuple'])
+            # with map
+            result_seg[0] = pop_elem_in_result(result_seg[0], pop_list=['args_tuple'])
+            # result_seg[0]['pts_bbox'] = pop_elem_in_result(result_seg[0]['pts_bbox'], pop_list=['bbox', 'segm', 'labels', 'panoptic', 'drivable', 'lane', 'stuff_score_list'])
+            # result_seg[0]['pts_bbox'] = {
+            #     'score_list': result_seg[0]['pts_bbox']['score_list'].detach().cpu(),
+            #     'stuff_score_list': result_seg[0]['pts_bbox']['stuff_score_list'].detach().cpu(),
+            #     'lane_score': result_seg[0]['pts_bbox']['lane_score'].detach().cpu()
+            # }
+            for k, v in result_seg[0]['pts_bbox'].items():
+                if isinstance(v, torch.Tensor):
+                    result_seg[0]['pts_bbox'][k] = v.detach().cpu()
         if self.with_motion_head:
             result_motion[0] = pop_elem_in_result(result_motion[0])
         if self.with_occ_head:

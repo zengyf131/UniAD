@@ -71,9 +71,11 @@ class Visualizer:
                 'singapore-queenstown': NuScenesMap(dataroot=dataroot, map_name='singapore-queenstown'),
             }
 
+    # no map
+    """
     def _parse_predictions_multitask_pkl(self, predroot):
-
-        outputs = mmcv.load(predroot)
+        
+        outputs = mmcv.load(predroot[:-4]+f"_{i}.pkl")
         outputs = outputs['bbox_results']
         prediction_dict = dict()
         for k in range(len(outputs)):
@@ -107,9 +109,10 @@ class Visualizer:
             # speed
             track_velocity = bboxes.tensor.cpu().detach().numpy()[:, -2:]
 
-            # trajectories
-            trajs = outputs[k][f'traj'].numpy()
-            traj_scores = outputs[k][f'traj_scores'].numpy()
+            # trajectoriesz
+            # stage 2
+            # trajs = outputs[k][f'traj'].numpy()
+            # traj_scores = outputs[k][f'traj_scores'].numpy()
 
             predicted_agent_list = []
 
@@ -149,8 +152,12 @@ class Visualizer:
                         track_dims[i],
                         track_yaw[i],
                         track_velocity[i],
-                        trajs[i],
-                        traj_scores[i],
+                        # stage 1
+                        None,
+                        None,
+                        # stage 2
+                        # trajs[i],
+                        # traj_scores[i],
                         pred_track_id=track_id,
                         pred_occ_map=occ_map_cur,
                         past_pred_traj=None
@@ -209,8 +216,171 @@ class Visualizer:
             else:
                 planning_agent = None
             prediction_dict[token] = dict(predicted_agent_list=predicted_agent_list,
-                                          predicted_map_seg=predicted_map_seg,
-                                          predicted_planning=planning_agent)
+                                        predicted_map_seg=predicted_map_seg,
+                                        predicted_planning=planning_agent)
+        return prediction_dict
+    """
+    
+    # with map
+    def _parse_predictions_multitask_pkl(self, predroot):
+        prediction_dict = dict()
+        for i in range(21):
+            print(f"loading pkl No.{i}")
+            outputs = mmcv.load(predroot[:-4]+f"_{i}.pkl")
+            outputs = outputs['bbox_results']
+            
+            for k in range(len(outputs)):
+                token = outputs[k]['token']
+                self.token_set.add(token)
+                if self.show_sdc_traj:
+                    outputs[k]['boxes_3d'].tensor = torch.cat(
+                        [outputs[k]['boxes_3d'].tensor, outputs[k]['sdc_boxes_3d'].tensor], dim=0)
+                    outputs[k]['scores_3d'] = torch.cat(
+                        [outputs[k]['scores_3d'], outputs[k]['sdc_scores_3d']], dim=0)
+                    outputs[k]['labels_3d'] = torch.cat([outputs[k]['labels_3d'], torch.zeros(
+                        (1,), device=outputs[k]['labels_3d'].device)], dim=0)
+                # detection
+                bboxes = outputs[k]['boxes_3d']
+                scores = outputs[k]['scores_3d']
+                labels = outputs[k]['labels_3d']
+
+                track_scores = scores.cpu().detach().numpy()
+                track_labels = labels.cpu().detach().numpy()
+                track_boxes = bboxes.tensor.cpu().detach().numpy()
+
+                track_centers = bboxes.gravity_center.cpu().detach().numpy()
+                track_dims = bboxes.dims.cpu().detach().numpy()
+                track_yaw = bboxes.yaw.cpu().detach().numpy()
+
+                if 'track_ids' in outputs[k]:
+                    track_ids = outputs[k]['track_ids'].cpu().detach().numpy()
+                else:
+                    track_ids = None
+
+                # speed
+                track_velocity = bboxes.tensor.cpu().detach().numpy()[:, -2:]
+
+                # trajectoriesz
+                # stage 2
+                # trajs = outputs[k][f'traj'].numpy()
+                # traj_scores = outputs[k][f'traj_scores'].numpy()
+
+                predicted_agent_list = []
+
+                # occflow
+                if self.with_occ_map:
+                    if 'topk_query_ins_segs' in outputs[k]['occ']:
+                        occ_map = outputs[k]['occ']['topk_query_ins_segs'][0].cpu(
+                        ).numpy()
+                    else:
+                        occ_map = np.zeros((1, 5, 200, 200))
+                else:
+                    occ_map = None
+
+                occ_idx = 0
+                for i in range(track_scores.shape[0]):
+                    if track_scores[i] < 0.25:
+                        continue
+                    if occ_map is not None and track_labels[i] in self.veh_id_list:
+                        occ_map_cur = occ_map[occ_idx, :, ::-1]
+                        occ_idx += 1
+                    else:
+                        occ_map_cur = None
+                    if track_ids is not None:
+                        if i < len(track_ids):
+                            track_id = track_ids[i]
+                        else:
+                            track_id = 0
+                    else:
+                        track_id = None
+                    # if track_labels[i] not in [0, 1, 2, 3, 4, 6, 7]:
+                    #     continue
+                    predicted_agent_list.append(
+                        AgentPredictionData(
+                            track_scores[i],
+                            track_labels[i],
+                            track_centers[i],
+                            track_dims[i],
+                            track_yaw[i],
+                            track_velocity[i],
+                            # stage 1
+                            None,
+                            None,
+                            # stage 2
+                            # trajs[i],
+                            # traj_scores[i],
+                            pred_track_id=track_id,
+                            pred_occ_map=occ_map_cur,
+                            past_pred_traj=None
+                        )
+                    )
+
+                # original
+                # if self.with_map:
+                #     map_thres = 0.7
+                #     score_list = outputs[k]['pts_bbox']['score_list'].cpu().numpy().transpose([
+                #         1, 2, 0])
+                #     predicted_map_seg = outputs[k]['pts_bbox']['lane_score'].cpu().numpy().transpose([
+                #         1, 2, 0])  # H, W, C
+                #     predicted_map_seg[..., -1] = score_list[..., -1]
+                #     predicted_map_seg = (predicted_map_seg > map_thres) * 1.0
+                #     predicted_map_seg = predicted_map_seg[::-1, :, :]
+                # changed
+                if self.with_map:
+                    map_thres = 0.7
+                    score_list = outputs[k]['pts_bbox']['score_list'].cpu().numpy().transpose([
+                        1, 2, 0])
+                    predicted_map_seg = outputs[k]['pts_bbox']['lane_score'].cpu().numpy().transpose([
+                        1, 2, 0])  # H, W, C
+                    predicted_map_seg = np.concatenate((predicted_map_seg, score_list[..., -1:]), 2)
+                    # predicted_map_seg[..., -1] = score_list[..., -1]
+                    predicted_map_seg = (predicted_map_seg > map_thres) * 1.0
+                    predicted_map_seg = predicted_map_seg[::-1, :, :]
+                else:
+                    predicted_map_seg = None
+
+                if self.with_planning:
+                    # detection
+                    bboxes = outputs[k]['sdc_boxes_3d']
+                    scores = outputs[k]['sdc_scores_3d']
+                    labels = 0
+
+                    track_scores = scores.cpu().detach().numpy()
+                    track_labels = labels
+                    track_boxes = bboxes.tensor.cpu().detach().numpy()
+
+                    track_centers = bboxes.gravity_center.cpu().detach().numpy()
+                    track_dims = bboxes.dims.cpu().detach().numpy()
+                    track_yaw = bboxes.yaw.cpu().detach().numpy()
+                    track_velocity = bboxes.tensor.cpu().detach().numpy()[:, -2:]
+
+                    outputs[k]['planning_traj'][0][:, 0] = - \
+                        outputs[k]['planning_traj'][0][:, 0]
+                    if self.show_command:
+                        command = outputs[k]['command'][0].cpu().detach().numpy()
+                    else:
+                        command = None
+                    planning_agent = AgentPredictionData(
+                        track_scores[0],
+                        track_labels,
+                        track_centers[0],
+                        track_dims[0],
+                        track_yaw[0],
+                        track_velocity[0],
+                        outputs[k]['planning_traj'][0].cpu().detach().numpy(),
+                        1,
+                        pred_track_id=-1,
+                        pred_occ_map=None,
+                        past_pred_traj=None,
+                        is_sdc=True,
+                        command=command,
+                    )
+                    predicted_agent_list.append(planning_agent)
+                else:
+                    planning_agent = None
+                prediction_dict[token] = dict(predicted_agent_list=predicted_agent_list,
+                                            predicted_map_seg=predicted_map_seg,
+                                            predicted_planning=planning_agent)
         return prediction_dict
 
     def visualize_bev(self, sample_token, out_filename, t=None):
@@ -253,8 +423,9 @@ class Visualizer:
         self.cam_render.render_image_data(sample_token, self.nusc)
         self.cam_render.render_pred_track_bbox(
             self.predictions[sample_token]['predicted_agent_list'], sample_token, self.nusc)
-        self.cam_render.render_pred_traj(
-            self.predictions[sample_token]['predicted_agent_list'], sample_token, self.nusc, render_sdc=self.with_planning)
+        # stage 2
+        # self.cam_render.render_pred_traj(
+        #     self.predictions[sample_token]['predicted_agent_list'], sample_token, self.nusc, render_sdc=self.with_planning)
         self.cam_render.save_fig(out_filename + '_cam.jpg')
 
     def combine(self, out_filename):
@@ -284,12 +455,13 @@ class Visualizer:
         out.release()
 
 def main(args):
+    # stage 1
     render_cfg = dict(
         with_occ_map=False,
-        with_map=False,
-        with_planning=True,
+        with_map=True,
+        with_planning=False,
         with_pred_box=True,
-        with_pred_traj=True,
+        with_pred_traj=False,
         show_gt_boxes=False,
         show_lidar=False,
         show_command=True,
@@ -298,6 +470,22 @@ def main(args):
         show_legend=True,
         show_sdc_traj=False
     )
+
+    # stage 2
+    # render_cfg = dict(
+    #     with_occ_map=False,
+    #     with_map=False,
+    #     with_planning=True,
+    #     with_pred_box=True,
+    #     with_pred_traj=True,
+    #     show_gt_boxes=False,
+    #     show_lidar=False,
+    #     show_command=True,
+    #     show_hd_map=True,
+    #     show_sdc_car=True,
+    #     show_legend=True,
+    #     show_sdc_traj=False
+    # )
 
     viser = Visualizer(version='v1.0-mini', predroot=args.predroot, dataroot='data/nuscenes', **render_cfg)
 
@@ -335,6 +523,9 @@ if __name__ == '__main__':
     parser.add_argument('--predroot', default='/mnt/nas20/yihan01.hu/tmp/results.pkl', help='Path to results.pkl')
     parser.add_argument('--out_folder', default='/mnt/nas20/yihan01.hu/tmp/viz/demo_test/', help='Output folder path')
     parser.add_argument('--demo_video', default='mini_val_final.avi', help='Demo video name')
+    # stage 1
     parser.add_argument('--project_to_cam', default=True, help='Project to cam (default: True)')
+    # stage 2
+    # parser.add_argument('--project_to_cam', default=True, help='Project to cam (default: True)')
     args = parser.parse_args()
     main(args)

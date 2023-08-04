@@ -1011,7 +1011,8 @@ class PansegformerHead(SegDETRHead):
         bbox_list = [dict() for i in range(len(img_metas))]
 
         pred_seg_dict = self(pts_feats)
-        results = self.get_bboxes(pred_seg_dict['outputs_classes'],
+        with torch.no_grad():
+            results = self.get_bboxes(pred_seg_dict['outputs_classes'],
                                            pred_seg_dict['outputs_coords'],
                                            pred_seg_dict['enc_outputs_class'],
                                            pred_seg_dict['enc_outputs_coord'],
@@ -1108,7 +1109,7 @@ class PansegformerHead(SegDETRHead):
         """
         """
         assert len(cls_score) == len(bbox_pred)
-        max_per_img = self.test_cfg.get('max_per_img', self.num_query)
+        max_per_img = self.test_cfg.get('max_per_img', self.num_query) # 100
 
         # exclude background
         if self.loss_cls.use_sigmoid:
@@ -1123,7 +1124,7 @@ class PansegformerHead(SegDETRHead):
             bbox_pred = bbox_pred[bbox_index]
             det_labels = det_labels[bbox_index]
 
-        det_bboxes = bbox_cxcywh_to_xyxy(bbox_pred)
+        det_bboxes = bbox_cxcywh_to_xyxy(bbox_pred) # [100, 4]
         det_bboxes[:, 0::2] = det_bboxes[:, 0::2] * img_shape[1]
         det_bboxes[:, 1::2] = det_bboxes[:, 1::2] * img_shape[0]
         det_bboxes[:, 0::2].clamp_(min=0, max=img_shape[1])
@@ -1163,7 +1164,7 @@ class PansegformerHead(SegDETRHead):
         lane_score_list = []
         score_list = []
         for img_id in range(len(img_metas)):
-            cls_score = cls_scores[img_id]
+            cls_score = cls_scores[img_id] # [300, 3]
             bbox_pred = bbox_preds[img_id]
             # img_shape = img_metas[img_id]['img_shape']
             # ori_shape = img_metas[img_id]['ori_shape']
@@ -1176,10 +1177,10 @@ class PansegformerHead(SegDETRHead):
                 cls_score, bbox_pred, img_shape, scale_factor, rescale)
 
             i = img_id
-            thing_query = query[i:i + 1, index, :]
+            thing_query = query[i:i + 1, index, :] # [1, 100, 256]
             thing_query_pos = query_pos[i:i + 1, index, :]
-            joint_query = torch.cat([
-                thing_query, self.stuff_query.weight[None, :, :self.embed_dims]
+            joint_query = torch.cat([   # [1, 101, 256]
+                thing_query, self.stuff_query.weight[None, :, :self.embed_dims] # stuff_query: [1, 512]，concatenating thing and stuff query
             ], 1)
 
             stuff_query_pos = self.stuff_query.weight[None, :,
@@ -1203,13 +1204,13 @@ class PansegformerHead(SegDETRHead):
                 hw_lvl=hw_lvl)
 
             attn_map = torch.cat([mask_things, mask_stuff], 1)
-            attn_map = attn_map.squeeze(-1)  # BS, NQ, N_head,LEN
+            attn_map = attn_map.squeeze(-1)  # BS, NQ, N_head,LEN, [1, 101, 40000]
 
             stuff_query = query_inter_stuff[-1]
             scores_stuff = self.cls_stuff_branches[-1](
                 stuff_query).sigmoid().reshape(-1)
 
-            mask_pred = attn_map.reshape(-1, *hw_lvl[0])
+            mask_pred = attn_map.reshape(-1, *hw_lvl[0]) # [101, 200, 200]
 
             mask_pred = F.interpolate(mask_pred.unsqueeze(0),
                                       size=ori_shape[:2],
@@ -1217,8 +1218,8 @@ class PansegformerHead(SegDETRHead):
 
             masks_all = mask_pred
             score_list.append(masks_all)
-            drivable_list.append(masks_all[-1] > 0.5)
-            masks_all = masks_all[:-self.num_stuff_classes]
+            drivable_list.append(masks_all[-1] > 0.5) # stuff, [200, 200]
+            masks_all = masks_all[:-self.num_stuff_classes] # things, [100, 200, 200]
             seg_all = masks_all > 0.5
             sum_seg_all = seg_all.sum((1, 2)).float() + 1
             # scores_all = torch.cat([bbox[:, -1], scores_stuff], 0)
@@ -1243,29 +1244,29 @@ class PansegformerHead(SegDETRHead):
             bboxes_all[:, -1] = scores_all
 
             # MDS: select things for instance segmeantion
-            things_selected = labels_all < self.num_things_classes
-            stuff_selected = labels_all >= self.num_things_classes
+            things_selected = labels_all < self.num_things_classes # ones
+            stuff_selected = labels_all >= self.num_things_classes # zeros
             bbox_th = bboxes_all[things_selected][:100]
-            labels_th = labels_all[things_selected][:100]
+            labels_th = labels_all[things_selected][:100] # [100]
             seg_th = seg_all[things_selected][:100]
-            labels_st = labels_all[stuff_selected]
-            scores_st = scores_all[stuff_selected]
-            masks_st = masks_all[stuff_selected]
+            labels_st = labels_all[stuff_selected] # empty
+            scores_st = scores_all[stuff_selected] # empty
+            masks_st = masks_all[stuff_selected] # empty
             
-            stuff_score_list.append(scores_st)
+            stuff_score_list.append(scores_st) # empty
 
-            results = torch.zeros((2, *mask_pred.shape[-2:]),
+            results = torch.zeros((2, *mask_pred.shape[-2:]), # [2, 200, 200]
                                   device=mask_pred.device).to(torch.long)
             id_unique = 1
-            lane = torch.zeros((self.num_things_classes, *mask_pred.shape[-2:]), device=mask_pred.device).to(torch.long)
-            lane_score =  torch.zeros((self.num_things_classes, *mask_pred.shape[-2:]), device=mask_pred.device).to(mask_pred.dtype)
+            lane = torch.zeros((self.num_things_classes, *mask_pred.shape[-2:]), device=mask_pred.device).to(torch.long) # [3, 200, 200]
+            lane_score =  torch.zeros((self.num_things_classes, *mask_pred.shape[-2:]), device=mask_pred.device).to(mask_pred.dtype) # [3, 200, 200]
             for i, scores in enumerate(scores_all):
                 # MDS: things and sutff have different threholds may perform a little bit better
                 if labels_all[i] < self.num_things_classes and scores < self.quality_threshold_things:
                     continue
-                elif labels_all[i] >= self.num_things_classes and scores < self.quality_threshold_stuff:
+                elif labels_all[i] >= self.num_things_classes and scores < self.quality_threshold_stuff: # useless
                     continue
-                _mask = masks_all[i] > 0.5
+                _mask = masks_all[i] > 0.5 # == seg_all[i]
                 mask_area = _mask.sum().item()
                 intersect = _mask & (results[0] > 0)
                 intersect_area = intersect.sum().item()

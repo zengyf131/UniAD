@@ -6,6 +6,7 @@ from pyquaternion import Quaternion
 from nuscenes.prediction import PredictHelper, convert_local_coords_to_global
 from tools.analysis_tools.visualize.render.base_render import BaseRender
 from tools.analysis_tools.visualize.utils import color_mapping, AgentPredictionData
+from projects.mmdet3d_plugin.datasets.nuscenes_e2e_dataset import obtain_map_info
 
 
 class BEVRender(BaseRender):
@@ -124,8 +125,12 @@ class BEVRender(BaseRender):
     def render_pred_map_data(self, predicted_map_seg):
         # rendered_map = map_color_dict
         # divider, crossing, contour
+        # original
+        # map_color_dict = np.array(
+        #     [(204, 128, 0), (102, 0, 102), (102, 255, 102)])
+        # changed
         map_color_dict = np.array(
-            [(204, 128, 0), (102, 255, 102), (102, 255, 102)])
+            [(204, 128, 0), (102, 0, 102), (0, 100, 0), (102, 255, 102)])
         rendered_map = map_color_dict[predicted_map_seg.argmax(
             -1).reshape(-1)].reshape(200, 200, -1)
         bg_mask = predicted_map_seg.sum(-1) == 0

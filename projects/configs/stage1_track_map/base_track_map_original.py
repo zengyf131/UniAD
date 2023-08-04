@@ -46,7 +46,7 @@ _dim_half_ = _pos_dim_
 canvas_size = (bev_h_, bev_w_)
 
 # NOTE: You can change queue_length from 5 to 3 to save GPU memory, but at risk of performance drop.
-queue_length = 3  # each sequence contains `queue_length` frames.
+queue_length = 5  # each sequence contains `queue_length` frames.
 
 ### traj prediction args ###
 predict_steps = 12
@@ -83,9 +83,9 @@ model = dict(
     num_query=900,
     num_classes=10,
     pc_range=point_cloud_range,
-    img_backbone=dict( # see /home/kangfu/.conda/envs/uniad/lib/python3.8/site-packages/mmdet/models/backbones/resnet.py
+    img_backbone=dict(
         type="ResNet",
-        depth=18,
+        depth=101,
         num_stages=4,
         out_indices=(1, 2, 3),
         frozen_stages=4,
@@ -95,18 +95,18 @@ model = dict(
         dcn=dict(
             type="DCNv2", deform_groups=1, fallback_on_stride=False
         ),  # original DCNv2 will print log when perform load_state_dict
-        stage_with_dcn=(False, False, False, False),
+        stage_with_dcn=(False, False, True, True),
     ),
     img_neck=dict(
         type="FPN",
-        in_channels=[128, 256, 512],
+        in_channels=[512, 1024, 2048],
         out_channels=_dim_,
         start_level=0,
         add_extra_convs="on_output",
         num_outs=4,
         relu_before_extra_convs=True,
     ),
-    freeze_img_backbone=False,
+    freeze_img_backbone=True,
     freeze_img_neck=False,
     freeze_bn=False,
     score_thresh=0.4,
@@ -160,7 +160,7 @@ model = dict(
             embed_dims=_dim_,
             encoder=dict(
                 type="BEVFormerEncoder",
-                num_layers=3,
+                num_layers=6,
                 pc_range=point_cloud_range,
                 num_points_in_pillar=4,
                 return_intermediate=False,
@@ -196,7 +196,7 @@ model = dict(
             ),
             decoder=dict(
                 type="DetectionTransformerDecoder",
-                num_layers=3,
+                num_layers=6,
                 return_intermediate=True,
                 transformerlayers=dict(
                     type="DetrTransformerDecoderLayer",
@@ -204,7 +204,7 @@ model = dict(
                         dict(
                             type="MultiheadAttention",
                             embed_dims=_dim_,
-                            num_heads=4,
+                            num_heads=8,
                             dropout=0.1,
                         ),
                         dict(
@@ -264,7 +264,7 @@ model = dict(
             type='SegDeformableTransformer',
             encoder=dict(
                 type='DetrTransformerEncoder',
-                num_layers=3,
+                num_layers=6,
                 transformerlayers=dict(
                     type='BaseTransformerLayer',
                     attn_cfgs=dict(
@@ -277,7 +277,7 @@ model = dict(
                     operation_order=('self_attn', 'norm', 'ffn', 'norm'))),
             decoder=dict(
                 type='DeformableDetrTransformerDecoder',
-                num_layers=3,
+                num_layers=6,
                 return_intermediate=True,
                 transformerlayers=dict(
                     type='DetrTransformerDecoderLayer',
@@ -285,7 +285,7 @@ model = dict(
                         dict(
                             type='MultiheadAttention',
                             embed_dims=_dim_,
-                            num_heads=4,
+                            num_heads=8,
                             dropout=0.1),
                         dict(
                             type='MultiScaleDeformableAttention',
@@ -478,7 +478,7 @@ test_pipeline = [
 ]
 data = dict(
     samples_per_gpu=1,
-    workers_per_gpu=1,
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
         file_client_args=file_client_args,
@@ -575,7 +575,7 @@ runner = dict(type="EpochBasedRunner", max_epochs=total_epochs)
 log_config = dict(
     interval=10, hooks=[dict(type="TextLoggerHook"), dict(type="TensorboardLoggerHook")]
 )
-checkpoint_config = dict(interval=1000, by_epoch=False)
-#load_from = "./projects/work_dirs/stage1_track_map/base_track_map/epoch_3.pth"
+checkpoint_config = dict(interval=1)
+load_from = "ckpts/bevformer_r101_dcn_24ep.pth"
 
 find_unused_parameters = True

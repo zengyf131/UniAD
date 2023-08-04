@@ -1,0 +1,3 @@
+python -m tools.analysis_tools.visualize.run --predroot ./output/stage1/results.pkl --out_folder ./render/stage1_map --demo_video test_demo_stage1.avi --project_to_cam True
+./tools/uniad_dist_eval.sh ./projects/configs/stage1_track_map/base_track_map.py ./ckpts/uniad_base_track_map.pth 1
+./tools/uniad_dist_train_multi_device.sh ./projects/configs/stage1_track_map/base_track_map.py 0 2 "10.228.148.34"

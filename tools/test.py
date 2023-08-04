@@ -16,7 +16,10 @@ from mmdet3d.datasets import build_dataset
 from projects.mmdet3d_plugin.datasets.builder import build_dataloader
 from mmdet3d.models import build_model
 from mmdet.apis import set_random_seed
-from projects.mmdet3d_plugin.uniad.apis.test import custom_multi_gpu_test
+# no map
+# from projects.mmdet3d_plugin.uniad.apis.test import custom_multi_gpu_test
+# with map
+from projects.mmdet3d_plugin.uniad.apis.test import custom_multi_gpu_vis_map
 from mmdet.datasets import replace_ImageToTensor
 import time
 import os.path as osp
@@ -228,33 +231,37 @@ def main():
             model.cuda(),
             device_ids=[torch.cuda.current_device()],
             broadcast_buffers=False)
-        outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
-                                        args.gpu_collect)
+        # no map
+        # outputs = custom_multi_gpu_test(model, data_loader, args.tmpdir,
+        #                                 args.gpu_collect)
+        # with map
+        custom_multi_gpu_vis_map(model, data_loader, args.tmpdir, args.gpu_collect, args.out)
 
-    rank, _ = get_dist_info()
-    if rank == 0:
-        if args.out:
-            print(f'\nwriting results to {args.out}')
-            #assert False
-            mmcv.dump(outputs, args.out)
-            #outputs = mmcv.load(args.out)
-        kwargs = {} if args.eval_options is None else args.eval_options
-        kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
-            '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
-        if args.format_only:
-            dataset.format_results(outputs, **kwargs)
+    # no map
+    # rank, _ = get_dist_info()
+    # if rank == 0:
+    #     if args.out:
+    #         print(f'\nwriting results to {args.out}')
+    #         #assert False
+    #         mmcv.dump(outputs, args.out)
+    #         #outputs = mmcv.load(args.out)
+    #     kwargs = {} if args.eval_options is None else args.eval_options
+    #     kwargs['jsonfile_prefix'] = osp.join('test', args.config.split(
+    #         '/')[-1].split('.')[-2], time.ctime().replace(' ', '_').replace(':', '_'))
+    #     if args.format_only:
+    #         dataset.format_results(outputs, **kwargs)
 
-        if args.eval:
-            eval_kwargs = cfg.get('evaluation', {}).copy()
-            # hard-code way to remove EvalHook args
-            for key in [
-                    'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
-                    'rule'
-            ]:
-                eval_kwargs.pop(key, None)
-            eval_kwargs.update(dict(metric=args.eval, **kwargs))
+    #     if args.eval:
+    #         eval_kwargs = cfg.get('evaluation', {}).copy()
+    #         # hard-code way to remove EvalHook args
+    #         for key in [
+    #                 'interval', 'tmpdir', 'start', 'gpu_collect', 'save_best',
+    #                 'rule'
+    #         ]:
+    #             eval_kwargs.pop(key, None)
+    #         eval_kwargs.update(dict(metric=args.eval, **kwargs))
 
-            print(dataset.evaluate(outputs, **eval_kwargs))
+    #         print(dataset.evaluate(outputs, **eval_kwargs))
 
 
 if __name__ == '__main__':
